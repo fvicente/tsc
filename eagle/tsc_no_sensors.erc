@@ -1,0 +1,60 @@
+EAGLE Version 4.16r2 Copyright (c) 1988-2006 CadSoft
+
+Electrical Rule Check for C:/eagle-win-eng-4.16r2/projects/TSC/tsc_no_sensors.sch at  2/28/2008 02:16:12p
+
+WARNING: Sheet 1/1: unconnected Pin: PWR-1 S
+WARNING: Sheet 1/1: SUPPLY Pin VSS overwritten with GND
+WARNING: Sheet 1/1: POWER Pin PIC VSS connected to GND
+WARNING: Sheet 1/1: POWER Pin IC3 GND1 connected to GND
+WARNING: Sheet 1/1: POWER Pin IC3 GND2 connected to GND
+WARNING: Sheet 1/1: POWER Pin IC3 VCC2 connected to N$7
+WARNING: Sheet 1/1: POWER Pin IC3 VCC1 connected to VDD
+WARNING: Sheet 1/1: POWER Pin IC3 GND3 connected to GND
+WARNING: Sheet 1/1: POWER Pin IC3 GND4 connected to GND
+WARNING: Only 1 Pin on net N$30
+WARNING: Only 1 Pin on net N$31
+WARNING: Only 1 Pin on net N$42
+WARNING: Only 1 Pin on net N$43
+WARNING: Only 1 Pin on net N$44
+WARNING: Only 1 Pin on net N$45
+WARNING: Only 1 Pin on net N$53
+WARNING: Only 1 Pin on net N$56
+WARNING: Only 1 Pin on net N$63
+WARNING: Only 1 Pin on net N$64
+WARNING: Only 1 Pin on net N$65
+WARNING: Only 1 Pin on net N$66
+WARNING: Sheet 1/1, Net GND: missing Junction at (6.4 -0.9)
+WARNING: Sheet 1/1, Net GND: missing Junction at (6.4 -1.6)
+WARNING: Sheet 1/1, Net GND: missing Junction at (6.4 -2.4)
+WARNING: Sheet 1/1, Net GND: missing Junction at (6.4 -2.9)
+WARNING: Sheet 1/1, Net GND: missing Junction at (6.4 -3.5)
+WARNING: Sheet 1/1, Net GND: missing Junction at (0.1 -0.3)
+WARNING: Sheet 1/1, Net VDD: missing Junction at (-0.3 2.1)
+WARNING: Sheet 1/1: Nets GND and N$6 too close at (4.2 3.5)
+WARNING: Sheet 1/1: Nets GND and N$6 too close at (4.2 3.5)
+WARNING: Sheet 1/1: Nets N$9 and GND too close at (3.6 1.9)
+WARNING: Sheet 1/1: Nets N$10 and N$1 too close at (4 2.2)
+WARNING: Sheet 1/1: Nets N$10 and N$7 too close at (4.2 2.2)
+WARNING: Sheet 1/1: Nets N$12 and N$5111 too close at (4 3.4)
+WARNING: Sheet 1/1: Nets N$12 and N$6 too close at (4.2 3.4)
+WARNING: Sheet 1/1: Nets N$17 and N$20 too close at (4.7 0.6)
+WARNING: Sheet 1/1: Nets N$17 and N$20 too close at (4.7 0.6)
+WARNING: Sheet 1/1: Nets N$33 and N$34 too close at (6.8 -0.9)
+WARNING: Sheet 1/1, Net N$10: wire overlaps pin at (4 2.2)
+WARNING: Sheet 1/1, Net N$10: wire overlaps pin at (4.2 2.2)
+WARNING: Sheet 1/1, Net N$12: wire overlaps pin at (4 3.4)
+WARNING: Sheet 1/1, Net N$12: wire overlaps pin at (4.2 3.4)
+WARNING: Sheet 1/1, Net N$9: wire overlaps pin at (3.6 1.9)
+WARNING: Sheet 1/1, Net N$7: wire overlaps pin at (0.3 -0.2)
+WARNING: Sheet 1/1, Net N$7: wire overlaps pin at (0.35 -0.2)
+
+Pins/Pads with different connections:
+
+  Part     Gate     Pin        Net      Pad      Signal
+
+  PWR                                   1        N$7
+
+ERROR: Board and schematic are not consistent!
+
+    1 errors
+   45 warnings
