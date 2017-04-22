@@ -1,0 +1,859 @@
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  1
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00001 ;-------------------------------------------------------------------------;
+                      00002 ;                                TSC 1.0                                  ;
+                      00003 ;               January '08  AlferSoft (fvicente@gmail.com)               ;
+                      00004 ;                                                                         ;
+                      00005 ;                                                                         ;
+                      00006 ;  RA0, RA1, RA2 to CD4021 serial input PIN 3 (Q8), 10 (CLK), 9 (P/S)     ;
+                      00007 ;  RA3, RB6, RB7 to CD4094 serial output PIN 1 (STR), 3 (CLK), 2 (D)      ;
+                      00008 ;  RB0, RB1, RB2 to L293D motor driver PIN 7 (2A), 2 (1A), 1 (1,2EN)      ;
+                      00009 ;  RB3, RB4, RB5 to L293D motor driver PIN 15 (4A), 10 (3A), 9 (3,4EN)    ;
+                      00010 ;-------------------------------------------------------------------------;
+                      00011 
+                      00012     ERRORLEVEL -302 ; remove message about using proper bank
+                      00013 
+                      00014     #INCLUDE "p16f628a.inc"
+                      00001         LIST
+                      00002 ; P16F628A.INC  Standard Header File, Version 1.10    Microchip Technology, Inc.
+                      00265         LIST
+                      00266 
+                      00015     LIST p=16F628A
+                      00016 
+                      00017 ;-------------------------------------------------------------------------;
+                      00018 ;    Here we define our own personal registers and give them names        ;
+                      00019 ;-------------------------------------------------------------------------;
+                      00020 
+                      00021     CBLOCK 0x20
+  00000020            00022         INPUT                  ; this register holds input bits
+  00000021            00023         PRESSED                ; B'00000000' nothing pressed
+                      00024                                ; B'10000000' gear up pressed
+                      00025                                ; B'01000000' gear down pressed
+                      00026                                ; B'11000000' both gear up and down pressed
+  00000022            00027         BOUNCECNT              ; button bounce counter
+  00000023            00028         TMPCNT                 ; temporary counter
+  00000024            00029         CNTMSEC                ; used in timing of milliseconds
+  00000025            00030         CURSTATE               ; current sensor state
+  00000026            00031         TMPVAR                 ; temporary variable
+  00000027            00032         ERRFLG                 ; bit 0 only, tells if an error has occurred
+  00000028            00033         TOCNT                  ; gear timeout counter
+                      00034     ENDC
+                      00035 
+                      00036 ;-------------------------------------------------------------------------;
+                      00037 ;                                 Inputs                                  ;
+                      00038 ;-------------------------------------------------------------------------;
+                      00039 
+                      00040 #DEFINE   CD4021_Q8             PORTA,0         ; serial input data
+                      00041 
+                      00042 ;-------------------------------------------------------------------------;
+                      00043 ;                                Outputs                                  ;
+                      00044 ;-------------------------------------------------------------------------;
+                      00045 
+                      00046 #DEFINE   CD4021_CLK    PORTA,1         ; serial input clock
+                      00047 #DEFINE   CD4021_LATCH  PORTA,2         ; serial input p/s control (latch)
+                      00048 #DEFINE   CD4094_STR    PORTA,3         ; serial output strobe
+                      00049 #DEFINE   CD4094_CLK    PORTB,6         ; serial output clock
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  2
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00050 #DEFINE   CD4094_DATA   PORTB,7         ; serial output data
+                      00051 #DEFINE   L293_2A               PORTB,0         ; motor driver 2A
+                      00052 #DEFINE   L293_1A               PORTB,1         ; motor driver 1A
+                      00053 #DEFINE   L293_12EN             PORTB,2         ; motor driver 12EN
+                      00054 #DEFINE   L293_4A               PORTB,3         ; motor driver 4A
+                      00055 #DEFINE   L293_3A               PORTB,4         ; motor driver 3A
+                      00056 #DEFINE   L293_34EN             PORTB,5         ; motor driver 34EN
+                      00057 
+                      00058 ;-------------------------------------------------------------------------;
+                      00059 ;    Here we give names to some numbers to make their use more clear      ;
+                      00060 ;-------------------------------------------------------------------------;
+                      00061 
+                      00062 #DEFINE   GEAR_UP       D'7'           ; gear up
+                      00063 #DEFINE   GEAR_DOWN     D'6'           ; gear down
+                      00064 
+                      00065 #DEFINE   STATE_ALL     B'00111111'    ; possible states
+                      00066 #DEFINE   STATE_N       B'00010010'    ; state N
+                      00067 #DEFINE   STATE_1       B'00100010'    ; state 1
+                      00068 #DEFINE   STATE_2       B'00001010'    ; state 2
+                      00069 #DEFINE   STATE_3       B'00010100'    ; state 3
+                      00070 #DEFINE   STATE_4       B'00010001'    ; state 4
+                      00071 
+                      00072 ;-------------------------------------------------------------------------;
+                      00073 ;         We set the start of code to orginate a location zero            ;
+                      00074 ;-------------------------------------------------------------------------;
+                      00075 
+0000                  00076       ORG 0
+                      00077 
+0000   2813           00078             GOTO MAIN                  ; jump to the main routine
+0001   0000           00079             NOP                        
+0002   0000           00080             NOP                        
+0003   0000           00081             NOP                        
+0004   0000           00082             NOP                        ; no interrupt routine
+                      00083 
+                      00084 ;-------------------------------------------------------------------------;
+                      00085 ;          Initialization routine sets up ports and timer                 ;
+                      00086 ;-------------------------------------------------------------------------;
+                      00087 
+0005   1303           00088 INIT        BCF STATUS,RP1
+0006   1683           00089                         BSF STATUS,RP0                          ; set bank 1
+0007   3001           00090                         MOVLW B'00000001'                       ; RA0 input, the rest outputs
+0008   0085           00091                         MOVWF TRISA
+0009   3000           00092                         MOVLW B'00000000'                       ; all bits of PORTB as outputs
+000A   0086           00093                         MOVWF TRISB
+000B   3080           00094                         MOVLW B'10000000'                       ; disable pull-up resistors <7>
+000C   0081           00095                         MOVWF OPTION_REG
+000D   1303           00096                         BCF STATUS,RP1
+000E   1283           00097                         BCF STATUS,RP0                          ; set bank 0
+000F   3007           00098                         MOVLW B'00000111'                       ; set bits RA3:RA0 as I/O <2:0>
+0010   009F           00099                         MOVWF CMCON
+0011   01A7           00100                         CLRF ERRFLG
+0012   0008           00101             RETURN                     
+                      00102 
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  3
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00103 ;-------------------------------------------------------------------------;
+                      00104 ;            This is the main routine, the program starts here            ;
+                      00105 ;-------------------------------------------------------------------------;
+                      00106 
+0013   2005           00107 MAIN        CALL INIT                  ; set up ports etc.
+0014   2138           00108 MAIN_LOOP   CALL READ_INPUT            ; read serial input
+0015   01A1           00109             CLRF PRESSED               ; clear pressed flag
+0016   1BA0           00110                         BTFSC INPUT,GEAR_UP        ; skip if gear up is pressed
+0017   2825           00111                         GOTO WAIT_BUTUP
+0018   1B20           00112             BTFSC INPUT,GEAR_DOWN      ; skip if gear up is pressed
+0019   2825           00113                         GOTO WAIT_BUTUP
+001A   2814           00114                         GOTO MAIN_LOOP
+001B   0821           00115 CLICKED     MOVF PRESSED,W             ; copy input to W
+001C   39C0           00116             ANDLW B'11000000'          ; leave only gear button bits
+001D   3AC0           00117             XORLW B'11000000'          ; xor result
+001E   1903           00118                         BTFSC STATUS,Z             ; skip result is different to 0
+001F   2814           00119             GOTO MAIN_LOOP             ; two bits are on, command cancelled
+0020   1BA1           00120             BTFSC PRESSED,GEAR_UP      ; skip if gear up is not pressed
+0021   284C           00121             GOTO DO_GEAR_UP
+0022   1B21           00122             BTFSC PRESSED,GEAR_DOWN    ; skip if gear down is not pressed
+0023   2854           00123             GOTO DO_GEAR_DN
+0024   2814           00124 AFTER_GEAR  GOTO MAIN_LOOP             ; continue waiting for an event
+                      00125 
+                      00126 ;-------------------------------------------------------------------------;
+                      00127 ;      Wait for gear up/down buttons to be released handling bounce       ;
+                      00128 ;-------------------------------------------------------------------------;
+                      00129 
+0025   0820           00130 WAIT_BUTUP  MOVF INPUT,W               ; copy input to W
+0026   39C0           00131                         ANDLW B'11000000'          ; leave only gear button bits
+0027   04A1           00132                         IORWF PRESSED,1            ; or W with pressed register and store result on it
+0028   30FF           00133             MOVLW 0FFH                 ; set accumulator to 0FFh
+0029   00A2           00134             MOVWF BOUNCECNT            ; move accumulator content to bounce counter
+002A   0BA2           00135 BOUNCE      DECFSZ BOUNCECNT,f
+002B   282A           00136             GOTO BOUNCE                ; loop until counter is 0
+002C   2138           00137 WAIT_REL    CALL READ_INPUT            ; read serial input
+002D   0820           00138             MOVF INPUT,W               ; copy input to W
+002E   39C0           00139                         ANDLW B'11000000'          ; leave only gear button bits
+002F   04A1           00140                         IORWF PRESSED,1            ; or W with pressed register and store result on it
+0030   1BA0           00141                         BTFSC INPUT,GEAR_UP        ; skip if gear up is not pressed
+0031   282C           00142             GOTO WAIT_REL              ; wait for button release
+0032   1B20           00143                         BTFSC INPUT,GEAR_DOWN      ; skip if gear down is not pressed
+0033   282C           00144                         GOTO WAIT_REL              ; wait for button release
+0034   281B           00145             GOTO CLICKED               ; continue execution of main loop
+                      00146 
+                      00147 ;-------------------------------------------------------------------------;
+                      00148 ;                             Gear up and down                            ;
+                      00149 ;-------------------------------------------------------------------------;
+                      00150 ; EN 1A 2A FUNCTION                                                       ;
+                      00151 ; H  L  H  Turn right                                                     ;
+                      00152 ; H  H  L  Turn left                                                      ;
+                      00153 ; H  L  L  Fast motor stop                                                ;
+                      00154 ; H  H  H  Fast motor stop                                                ;
+                      00155 ; L  X  X  Fast motor stop                                                ;
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  4
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00156 ;-------------------------------------------------------------------------;
+                      00157 
+0035   0820           00158 GET_STATE   MOVF INPUT,W               ; copy input to W
+0036   393F           00159             ANDLW STATE_ALL            ; leave only states bits
+0037   00A5           00160                         MOVWF CURSTATE             ; copy W into CURSTATE
+0038   3A12           00161             XORLW STATE_N              ; see if current state is N
+0039   1903           00162                         BTFSC STATUS,Z             ; skip result is different to 0
+003A   3400           00163                         RETLW D'0'
+003B   0825           00164                         MOVF CURSTATE,W            ; copy current state into W
+003C   3A22           00165             XORLW STATE_1              ; see if current state is 1
+003D   1903           00166                         BTFSC STATUS,Z             ; skip result is different to 0
+003E   3401           00167                         RETLW D'1'
+003F   0825           00168                         MOVF CURSTATE,W            ; copy current state into W
+0040   3A0A           00169             XORLW STATE_2              ; see if current state is 2
+0041   1903           00170                         BTFSC STATUS,Z             ; skip result is different to 0
+0042   3402           00171                         RETLW D'2'
+0043   0825           00172                         MOVF CURSTATE,W            ; copy current state into W
+0044   3A14           00173             XORLW STATE_3              ; see if current state is 3
+0045   1903           00174                         BTFSC STATUS,Z             ; skip result is different to 0
+0046   3403           00175                         RETLW D'3'
+0047   0825           00176                         MOVF CURSTATE,W            ; copy current state into W
+0048   3A11           00177             XORLW STATE_4              ; see if current state is 3
+0049   1903           00178                         BTFSC STATUS,Z             ; skip result is different to 0
+004A   3404           00179                         RETLW D'4'
+004B   3405           00180                         RETLW D'5'                 ; unknown state
+                      00181 
+004C   2035           00182 DO_GEAR_UP  CALL GET_STATE             ; state offset is stored in W
+004D   0782           00183             ADDWF PCL,f
+004E   2878           00184                         GOTO FROM_N_TO_1
+004F   2888           00185                         GOTO FROM_1_TO_2
+0050   2898           00186                         GOTO FROM_2_TO_3
+0051   28B8           00187                         GOTO FROM_3_TO_4
+0052   2824           00188                         GOTO AFTER_GEAR
+0053   291C           00189                         GOTO UNK_STATE             ; unknown state
+                      00190 
+0054   2035           00191 DO_GEAR_DN  CALL GET_STATE             ; state offset is stored in W
+0055   0782           00192             ADDWF PCL,f
+0056   2824           00193                         GOTO AFTER_GEAR
+0057   28C8           00194                         GOTO FROM_1_TO_N
+0058   28D8           00195                         GOTO FROM_2_TO_1
+0059   28E8           00196                         GOTO FROM_3_TO_2
+005A   2908           00197                         GOTO FROM_4_TO_3
+005B   291C           00198                         GOTO UNK_STATE             ; unknown state
+                      00199 
+005C   1106           00200 STOP_MT_1   BCF L293_12EN
+005D   1006           00201             BCF L293_2A
+005E   1086           00202             BCF L293_1A
+005F   0008           00203                         RETURN
+                      00204 
+0060   205C           00205 STOP_MT_1_D CALL STOP_MT_1
+0061   291E           00206                         GOTO DRAW_LEDS
+                      00207 
+0062   1406           00208 MT_1_RIGHT  BSF L293_2A
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  5
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0063   1086           00209             BCF L293_1A
+0064   1506           00210                         BSF L293_12EN
+0065   0008           00211                         RETURN
+                      00212 
+0066   1006           00213 MT_1_LEFT   BCF L293_2A
+0067   1486           00214             BSF L293_1A
+0068   1506           00215                         BSF L293_12EN
+0069   0008           00216                         RETURN
+                      00217 
+006A   1286           00218 STOP_MT_2   BCF L293_34EN
+006B   1186           00219             BCF L293_4A
+006C   1206           00220             BCF L293_3A
+006D   0008           00221                         RETURN
+                      00222 
+006E   206A           00223 STOP_MT_2_D CALL STOP_MT_2
+006F   291E           00224                         GOTO DRAW_LEDS
+                      00225 
+0070   1586           00226 MT_2_RIGHT  BSF L293_4A
+0071   1206           00227             BCF L293_3A
+0072   1686           00228                         BSF L293_34EN
+0073   0008           00229                         RETURN
+                      00230 
+0074   1186           00231 MT_2_LEFT   BCF L293_4A
+0075   1606           00232             BSF L293_3A
+0076   1686           00233                         BSF L293_34EN
+0077   0008           00234                         RETURN
+                      00235 
+0078   2066           00236 FROM_N_TO_1 CALL MT_1_LEFT
+0079   3064           00237             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+007A   00A8           00238                         MOVWF TOCNT
+007B   214D           00239 LOOP_N_TO_1 CALL DLY20
+007C   03A8           00240             DECF TOCNT,1               ; decrement timeout counter
+007D   1D03           00241                         BTFSS STATUS,Z             ; skip when timeout different from zero
+007E   2918           00242             GOTO MT1_TIMEOUT           ; timeout reached
+007F   2138           00243             CALL READ_INPUT            ; read serial input
+0080   2035           00244                         CALL GET_STATE             ; state offset is stored in W
+0081   0782           00245             ADDWF PCL,f
+0082   287B           00246                         GOTO LOOP_N_TO_1
+0083   2860           00247                         GOTO STOP_MT_1_D
+0084   287B           00248                         GOTO LOOP_N_TO_1
+0085   287B           00249                         GOTO LOOP_N_TO_1
+0086   287B           00250                         GOTO LOOP_N_TO_1
+0087   287B           00251                         GOTO LOOP_N_TO_1           ; unknown state may be correct during gear transition
+                      00252 
+0088   2062           00253 FROM_1_TO_2 CALL MT_1_RIGHT
+0089   3064           00254             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+008A   00A8           00255                         MOVWF TOCNT
+008B   214D           00256 LOOP_1_TO_2 CALL DLY20
+008C   03A8           00257             DECF TOCNT,1               ; decrement timeout counter
+008D   1D03           00258                         BTFSS STATUS,Z             ; skip when timeout different from zero
+008E   2918           00259             GOTO MT1_TIMEOUT           ; timeout reached
+008F   2138           00260             CALL READ_INPUT            ; read serial input
+0090   2035           00261                         CALL GET_STATE             ; state offset is stored in W
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  6
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0091   0782           00262             ADDWF PCL,f
+0092   288B           00263                         GOTO LOOP_1_TO_2
+0093   288B           00264                         GOTO LOOP_1_TO_2
+0094   2860           00265                         GOTO STOP_MT_1_D
+0095   288B           00266                         GOTO LOOP_1_TO_2
+0096   288B           00267                         GOTO LOOP_1_TO_2
+0097   288B           00268                         GOTO LOOP_1_TO_2           ; unknown state may be correct during gear transition
+                      00269 
+0098   2066           00270 FROM_2_TO_3 CALL MT_1_LEFT
+0099   3064           00271             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+009A   00A8           00272                         MOVWF TOCNT
+009B   214D           00273 LOOP_2_TO_3 CALL DLY20
+009C   03A8           00274             DECF TOCNT,1               ; decrement timeout counter
+009D   1D03           00275                         BTFSS STATUS,Z             ; skip when timeout different from zero
+009E   2918           00276             GOTO MT1_TIMEOUT           ; timeout reached
+009F   2138           00277             CALL READ_INPUT            ; read serial input
+00A0   2035           00278                         CALL GET_STATE             ; state offset is stored in W
+00A1   0782           00279             ADDWF PCL,f
+00A2   28A8           00280                         GOTO CONT_2_TO_3
+00A3   289B           00281                         GOTO LOOP_2_TO_3
+00A4   289B           00282                         GOTO LOOP_2_TO_3
+00A5   289B           00283                         GOTO LOOP_2_TO_3
+00A6   289B           00284                         GOTO LOOP_2_TO_3
+00A7   289B           00285                         GOTO LOOP_2_TO_3           ; unknown state may be correct during gear transition
+00A8   2070           00286 CONT_2_TO_3 CALL MT_2_RIGHT
+00A9   3064           00287             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+00AA   00A8           00288                         MOVWF TOCNT
+00AB   214D           00289 LOO2_2_TO_3 CALL DLY20
+00AC   03A8           00290             DECF TOCNT,1               ; decrement timeout counter
+00AD   1D03           00291                         BTFSS STATUS,Z             ; skip when timeout different from zero
+00AE   291A           00292             GOTO MT2_TIMEOUT           ; timeout reached
+00AF   2138           00293             CALL READ_INPUT            ; read serial input
+00B0   2035           00294                         CALL GET_STATE             ; state offset is stored in W
+00B1   0782           00295             ADDWF PCL,f
+00B2   28AB           00296                         GOTO LOO2_2_TO_3
+00B3   28AB           00297                         GOTO LOO2_2_TO_3
+00B4   28AB           00298                         GOTO LOO2_2_TO_3
+00B5   286E           00299                         GOTO STOP_MT_2_D
+00B6   28AB           00300                         GOTO LOO2_2_TO_3
+00B7   28AB           00301                         GOTO LOO2_2_TO_3           ; unknown state may be correct during gear transition
+                      00302 
+00B8   2070           00303 FROM_3_TO_4 CALL MT_2_RIGHT
+00B9   3064           00304             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+00BA   00A8           00305                         MOVWF TOCNT
+00BB   214D           00306 LOOP_3_TO_4 CALL DLY20
+00BC   03A8           00307             DECF TOCNT,1               ; decrement timeout counter
+00BD   1D03           00308                         BTFSS STATUS,Z             ; skip when timeout different from zero
+00BE   291A           00309             GOTO MT2_TIMEOUT           ; timeout reached
+00BF   2138           00310             CALL READ_INPUT            ; read serial input
+00C0   2035           00311                         CALL GET_STATE             ; state offset is stored in W
+00C1   0782           00312             ADDWF PCL,f
+00C2   28BB           00313                         GOTO LOOP_3_TO_4
+00C3   28BB           00314                         GOTO LOOP_3_TO_4
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  7
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+00C4   28BB           00315                         GOTO LOOP_3_TO_4
+00C5   28BB           00316                         GOTO LOOP_3_TO_4
+00C6   286E           00317                         GOTO STOP_MT_2_D
+00C7   28BB           00318                         GOTO LOOP_3_TO_4           ; unknown state may be correct during gear transition
+                      00319 
+00C8   2062           00320 FROM_1_TO_N CALL MT_1_RIGHT
+00C9   3064           00321             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+00CA   00A8           00322                         MOVWF TOCNT
+00CB   214D           00323 LOOP_1_TO_N CALL DLY20
+00CC   03A8           00324             DECF TOCNT,1               ; decrement timeout counter
+00CD   1D03           00325                         BTFSS STATUS,Z             ; skip when timeout different from zero
+00CE   2918           00326             GOTO MT1_TIMEOUT           ; timeout reached
+00CF   2138           00327             CALL READ_INPUT            ; read serial input
+00D0   2035           00328                         CALL GET_STATE             ; state offset is stored in W
+00D1   0782           00329             ADDWF PCL,f
+00D2   2860           00330                         GOTO STOP_MT_1_D
+00D3   28CB           00331                         GOTO LOOP_1_TO_N
+00D4   28CB           00332                         GOTO LOOP_1_TO_N
+00D5   28CB           00333                         GOTO LOOP_1_TO_N
+00D6   28CB           00334                         GOTO LOOP_1_TO_N
+00D7   28CB           00335                         GOTO LOOP_1_TO_N           ; unknown state may be correct during gear transition
+                      00336 
+00D8   2062           00337 FROM_2_TO_1 CALL MT_1_RIGHT
+00D9   3064           00338             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+00DA   00A8           00339                         MOVWF TOCNT
+00DB   214D           00340 LOOP_2_TO_1 CALL DLY20
+00DC   03A8           00341             DECF TOCNT,1               ; decrement timeout counter
+00DD   1D03           00342                         BTFSS STATUS,Z             ; skip when timeout different from zero
+00DE   2918           00343             GOTO MT1_TIMEOUT           ; timeout reached
+00DF   2138           00344             CALL READ_INPUT            ; read serial input
+00E0   2035           00345                         CALL GET_STATE             ; state offset is stored in W
+00E1   0782           00346             ADDWF PCL,f
+00E2   28DB           00347                         GOTO LOOP_2_TO_1
+00E3   2860           00348                         GOTO STOP_MT_1_D
+00E4   28DB           00349                         GOTO LOOP_2_TO_1
+00E5   28DB           00350                         GOTO LOOP_2_TO_1
+00E6   28DB           00351                         GOTO LOOP_2_TO_1
+00E7   28DB           00352                         GOTO LOOP_2_TO_1           ; unknown state may be correct during gear transition
+                      00353 
+00E8   2070           00354 FROM_3_TO_2 CALL MT_2_RIGHT
+00E9   3064           00355             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+00EA   00A8           00356                         MOVWF TOCNT
+00EB   214D           00357 LOOP_3_TO_2 CALL DLY20
+00EC   03A8           00358             DECF TOCNT,1               ; decrement timeout counter
+00ED   1D03           00359                         BTFSS STATUS,Z             ; skip when timeout different from zero
+00EE   291A           00360             GOTO MT2_TIMEOUT           ; timeout reached
+00EF   2138           00361             CALL READ_INPUT            ; read serial input
+00F0   2035           00362                         CALL GET_STATE             ; state offset is stored in W
+00F1   0782           00363             ADDWF PCL,f
+00F2   28F8           00364                         GOTO CONT_3_TO_2
+00F3   28EB           00365                         GOTO LOOP_3_TO_2
+00F4   28EB           00366                         GOTO LOOP_3_TO_2
+00F5   28EB           00367                         GOTO LOOP_3_TO_2
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  8
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+00F6   28EB           00368                         GOTO LOOP_3_TO_2
+00F7   28EB           00369                         GOTO LOOP_3_TO_2           ; unknown state may be correct during gear transition
+00F8   2062           00370 CONT_3_TO_2 CALL MT_1_RIGHT
+00F9   3064           00371             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+00FA   00A8           00372                         MOVWF TOCNT
+00FB   214D           00373 LOO2_3_TO_2 CALL DLY20
+00FC   03A8           00374             DECF TOCNT,1               ; decrement timeout counter
+00FD   1D03           00375                         BTFSS STATUS,Z             ; skip when timeout different from zero
+00FE   2918           00376             GOTO MT1_TIMEOUT           ; timeout reached
+00FF   2138           00377             CALL READ_INPUT            ; read serial input
+0100   2035           00378                         CALL GET_STATE             ; state offset is stored in W
+0101   0782           00379             ADDWF PCL,f
+0102   28FB           00380                         GOTO LOO2_3_TO_2
+0103   28FB           00381                         GOTO LOO2_3_TO_2
+0104   2860           00382                         GOTO STOP_MT_1_D
+0105   28FB           00383                         GOTO LOO2_3_TO_2
+0106   28FB           00384                         GOTO LOO2_3_TO_2
+0107   28FB           00385                         GOTO LOO2_3_TO_2           ; unknown state may be correct during gear transition
+                      00386 
+0108   2074           00387 FROM_4_TO_3 CALL MT_2_LEFT
+0109   3064           00388             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
+010A   00A8           00389                         MOVWF TOCNT
+010B   214D           00390 LOOP_4_TO_3 CALL DLY20
+010C   03A8           00391             DECF TOCNT,1               ; decrement timeout counter
+010D   1D03           00392                         BTFSS STATUS,Z             ; skip when timeout different from zero
+010E   291A           00393             GOTO MT2_TIMEOUT           ; timeout reached
+010F   2138           00394             CALL READ_INPUT            ; read serial input
+0110   2035           00395                         CALL GET_STATE             ; state offset is stored in W
+0111   0782           00396             ADDWF PCL,f
+0112   290B           00397                         GOTO LOOP_4_TO_3
+0113   290B           00398                         GOTO LOOP_4_TO_3
+0114   290B           00399                         GOTO LOOP_4_TO_3
+0115   286E           00400                         GOTO STOP_MT_2_D
+0116   290B           00401                         GOTO LOOP_4_TO_3
+0117   290B           00402                         GOTO LOOP_4_TO_3           ; unknown state may be correct during gear transition
+                      00403 
+0118   205C           00404 MT1_TIMEOUT CALL STOP_MT_1
+0119   291C           00405             GOTO UNK_STATE
+                      00406 
+011A   206A           00407 MT2_TIMEOUT CALL STOP_MT_2
+011B   291C           00408             GOTO UNK_STATE
+                      00409 
+011C   1427           00410 UNK_STATE   BSF ERRFLG,0
+011D   291E           00411             GOTO DRAW_LEDS
+                      00412 
+011E   01A6           00413 DRAW_LEDS       CLRF TMPVAR                ; into temporary variable
+011F   2035           00414             CALL GET_STATE             ; state offset is stored in W
+0120   1426           00415             BSF TMPVAR,W
+0121   1827           00416                         BTFSC ERRFLG,0
+0122   16A6           00417                         BSF TMPVAR,5
+0123   3008           00418                         MOVLW D'8'                 ; 8
+0124   00A3           00419                         MOVWF TMPCNT               ; into counting register
+0125   0C26           00420 LOOPBITW        RRF TMPVAR,W
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE  9
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0126   1C03           00421             BTFSS STATUS,C
+0127   292B           00422                         GOTO CONTOFFW
+0128   2929           00423                         GOTO CONTONW
+0129   1786           00424 CONTONW     BSF CD4094_DATA            ; set data
+012A   292C           00425                         GOTO CONTINUEW
+012B   1386           00426 CONTOFFW    BCF CD4094_DATA            ; clear data
+012C   00A6           00427 CONTINUEW   MOVWF TMPVAR               ; into temporary variable
+012D   1706           00428                         BSF CD4094_CLK             ; set clock
+012E   0000           00429                         NOP
+012F   1306           00430                         BCF CD4094_CLK             ; clear clock
+0130   0000           00431                         NOP
+0131   0BA3           00432             DECFSZ TMPCNT,f            ; finished count down
+0132   2925           00433             GOTO LOOPBITW              ; continue write loop
+0133   1585           00434                         BSF CD4094_STR             ; set strobe
+0134   0000           00435                         NOP
+0135   1185           00436                         BCF CD4094_STR             ; clear strobe
+0136   0000           00437                         NOP
+0137   2824           00438             GOTO AFTER_GEAR
+                      00439 
+                      00440 ;-------------------------------------------------------------------------;
+                      00441 ;                               Read inputs                               ;
+                      00442 ;-------------------------------------------------------------------------;
+                      00443 
+0138   01A0           00444 READ_INPUT  CLRF INPUT
+0139   3008           00445                         MOVLW D'8'                 ; 8
+013A   00A3           00446                         MOVWF TMPCNT               ; into counting register
+013B   1505           00447             BSF CD4021_LATCH
+013C   214D           00448             CALL DLY20
+013D   1105           00449                         BCF CD4021_LATCH
+013E   214D           00450                         CALL DLY20
+013F   1C05           00451 LOOPBITR    BTFSS CD4021_Q8
+0140   2944           00452                         GOTO CONTOFFR
+0141   2942           00453                         GOTO CONTONR
+0142   1403           00454 CONTONR     BSF STATUS,C
+0143   2945           00455                         GOTO CONTINUER
+0144   1003           00456 CONTOFFR    BCF STATUS,C               ; clear data
+0145   1485           00457 CONTINUER   BSF CD4021_CLK             ; set clock
+0146   0000           00458                         NOP
+0147   1085           00459                         BCF CD4021_CLK             ; clear clock
+0148   0000           00460                         NOP
+0149   0DA0           00461                         RLF INPUT,1
+014A   0BA3           00462             DECFSZ TMPCNT,f            ; finished count down
+014B   293F           00463             GOTO LOOPBITR              ; continue read loop
+014C   0008           00464                         RETURN
+                      00465 
+                      00466 ;-------------------------------------------------------------------------;
+                      00467 ;  About 20 millisecond delay routine                                     ;  
+                      00468 ;-------------------------------------------------------------------------;
+                      00469 
+014D   3014           00470 DLY20       MOVLW D'20'                ; delay for about 20 milliseconds
+014E   00A4           00471 NMSEC       MOVWF CNTMSEC
+014F   2153           00472 MSECLOOP    CALL ONEMSEC               ; one ms
+0150   0BA4           00473             DECFSZ CNTMSEC,f           ; decrement counter
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE 10
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0151   294F           00474             GOTO MSECLOOP
+0152   0008           00475             RETURN
+                      00476 
+                      00477 ;-------------------------------------------------------------------------;
+                      00478 ;  1 millisecond delay routine                                            ;  
+                      00479 ;-------------------------------------------------------------------------;
+0153   30F9           00480 ONEMSEC     MOVLW D'249'               ; 1 microsec for load W
+                      00481                                        ; loops below take 248 X 4 + 3 = 995
+0154   3EFF           00482 MICRO4      ADDLW H'FF'                ; subtract 1 from 'W'
+0155   1D03           00483             BTFSS STATUS,Z             ; skip when you reach zero
+0156   2954           00484             GOTO MICRO4                ; loops takes 4 microsec, 3 for last
+0157   0008           00485             RETURN                     ; takes 2 microsec
+                      00486                                        ; call + load  W + loops + return =
+                      00487                                        ; 2 + 1 + 995 + 2 = 1000 microsec
+                      00488 
+                      00489     END
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE 11
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+ADEN                              00000003
+AFTER_GEAR                        00000024
+BOUNCE                            0000002A
+BOUNCECNT                         00000022
+BRGH                              00000002
+C                                 00000000
+C1INV                             00000004
+C1OUT                             00000006
+C2INV                             00000005
+C2OUT                             00000007
+CCP1CON                           00000017
+CCP1IE                            00000002
+CCP1IF                            00000002
+CCP1M0                            00000000
+CCP1M1                            00000001
+CCP1M2                            00000002
+CCP1M3                            00000003
+CCP1X                             00000005
+CCP1Y                             00000004
+CCPR1H                            00000016
+CCPR1L                            00000015
+CD4021_CLK                        PORTA,1
+CD4021_LATCH                      PORTA,2
+CD4021_Q8                         PORTA,0
+CD4094_CLK                        PORTB,6
+CD4094_DATA                       PORTB,7
+CD4094_STR                        PORTA,3
+CIS                               00000003
+CLICKED                           0000001B
+CM0                               00000000
+CM1                               00000001
+CM2                               00000002
+CMCON                             0000001F
+CMIE                              00000006
+CMIF                              00000006
+CNTMSEC                           00000024
+CONTINUER                         00000145
+CONTINUEW                         0000012C
+CONTOFFR                          00000144
+CONTOFFW                          0000012B
+CONTONR                           00000142
+CONTONW                           00000129
+CONT_2_TO_3                       000000A8
+CONT_3_TO_2                       000000F8
+CREN                              00000004
+CSRC                              00000007
+CURSTATE                          00000025
+DC                                00000001
+DLY20                             0000014D
+DO_GEAR_DN                        00000054
+DO_GEAR_UP                        0000004C
+DRAW_LEDS                         0000011E
+EEADR                             0000009B
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE 12
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+EECON1                            0000009C
+EECON2                            0000009D
+EEDATA                            0000009A
+EEIE                              00000007
+EEIF                              00000007
+ERRFLG                            00000027
+F                                 00000001
+FERR                              00000002
+FROM_1_TO_2                       00000088
+FROM_1_TO_N                       000000C8
+FROM_2_TO_1                       000000D8
+FROM_2_TO_3                       00000098
+FROM_3_TO_2                       000000E8
+FROM_3_TO_4                       000000B8
+FROM_4_TO_3                       00000108
+FROM_N_TO_1                       00000078
+FSR                               00000004
+GEAR_DOWN                         D'6'
+GEAR_UP                           D'7'
+GET_STATE                         00000035
+GIE                               00000007
+INDF                              00000000
+INIT                              00000005
+INPUT                             00000020
+INTCON                            0000000B
+INTE                              00000004
+INTEDG                            00000006
+INTF                              00000001
+IRP                               00000007
+L293_12EN                         PORTB,2
+L293_1A                           PORTB,1
+L293_2A                           PORTB,0
+L293_34EN                         PORTB,5
+L293_3A                           PORTB,4
+L293_4A                           PORTB,3
+LOO2_2_TO_3                       000000AB
+LOO2_3_TO_2                       000000FB
+LOOPBITR                          0000013F
+LOOPBITW                          00000125
+LOOP_1_TO_2                       0000008B
+LOOP_1_TO_N                       000000CB
+LOOP_2_TO_1                       000000DB
+LOOP_2_TO_3                       0000009B
+LOOP_3_TO_2                       000000EB
+LOOP_3_TO_4                       000000BB
+LOOP_4_TO_3                       0000010B
+LOOP_N_TO_1                       0000007B
+MAIN                              00000013
+MAIN_LOOP                         00000014
+MICRO4                            00000154
+MSECLOOP                          0000014F
+MT1_TIMEOUT                       00000118
+MT2_TIMEOUT                       0000011A
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE 13
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+MT_1_LEFT                         00000066
+MT_1_RIGHT                        00000062
+MT_2_LEFT                         00000074
+MT_2_RIGHT                        00000070
+NMSEC                             0000014E
+NOT_BO                            00000000
+NOT_BOD                           00000000
+NOT_BOR                           00000000
+NOT_PD                            00000003
+NOT_POR                           00000001
+NOT_RBPU                          00000007
+NOT_T1SYNC                        00000002
+NOT_TO                            00000004
+OERR                              00000001
+ONEMSEC                           00000153
+OPTION_REG                        00000081
+OSCF                              00000003
+PCL                               00000002
+PCLATH                            0000000A
+PCON                              0000008E
+PEIE                              00000006
+PIE1                              0000008C
+PIR1                              0000000C
+PORTA                             00000005
+PORTB                             00000006
+PR2                               00000092
+PRESSED                           00000021
+PS0                               00000000
+PS1                               00000001
+PS2                               00000002
+PSA                               00000003
+RBIE                              00000003
+RBIF                              00000000
+RCIE                              00000005
+RCIF                              00000005
+RCREG                             0000001A
+RCSTA                             00000018
+RD                                00000000
+READ_INPUT                        00000138
+RP0                               00000005
+RP1                               00000006
+RX9                               00000006
+RX9D                              00000000
+SPBRG                             00000099
+SPEN                              00000007
+SREN                              00000005
+STATE_1                           B'00100010'
+STATE_2                           B'00001010'
+STATE_3                           B'00010100'
+STATE_4                           B'00010001'
+STATE_ALL                         B'00111111'
+STATE_N                           B'00010010'
+STATUS                            00000003
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE 14
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+STOP_MT_1                         0000005C
+STOP_MT_1_D                       00000060
+STOP_MT_2                         0000006A
+STOP_MT_2_D                       0000006E
+SYNC                              00000004
+T0CS                              00000005
+T0IE                              00000005
+T0IF                              00000002
+T0SE                              00000004
+T1CKPS0                           00000004
+T1CKPS1                           00000005
+T1CON                             00000010
+T1OSCEN                           00000003
+T2CKPS0                           00000000
+T2CKPS1                           00000001
+T2CON                             00000012
+TMPCNT                            00000023
+TMPVAR                            00000026
+TMR0                              00000001
+TMR1CS                            00000001
+TMR1H                             0000000F
+TMR1IE                            00000000
+TMR1IF                            00000000
+TMR1L                             0000000E
+TMR1ON                            00000000
+TMR2                              00000011
+TMR2IE                            00000001
+TMR2IF                            00000001
+TMR2ON                            00000002
+TOCNT                             00000028
+TOUTPS0                           00000003
+TOUTPS1                           00000004
+TOUTPS2                           00000005
+TOUTPS3                           00000006
+TRISA                             00000085
+TRISB                             00000086
+TRMT                              00000001
+TX9                               00000006
+TX9D                              00000000
+TXEN                              00000005
+TXIE                              00000004
+TXIF                              00000004
+TXREG                             00000019
+TXSTA                             00000098
+UNK_STATE                         0000011C
+VR0                               00000000
+VR1                               00000001
+VR2                               00000002
+VR3                               00000003
+VRCON                             0000009F
+VREN                              00000007
+VROE                              00000006
+VRR                               00000005
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE 15
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+W                                 00000000
+WAIT_BUTUP                        00000025
+WAIT_REL                          0000002C
+WR                                00000001
+WREN                              00000002
+WRERR                             00000003
+Z                                 00000002
+_BODEN_OFF                        00003FBF
+_BODEN_ON                         00003FFF
+_BOREN_OFF                        00003FBF
+_BOREN_ON                         00003FFF
+_CP_OFF                           00003FFF
+_CP_ON                            00001FFF
+_DATA_CP_OFF                      00003FFF
+_DATA_CP_ON                       00003EFF
+_ER_OSC_CLKOUT                    00003FFF
+_ER_OSC_NOCLKOUT                  00003FFE
+_EXTCLK_OSC                       00003FEF
+_HS_OSC                           00003FEE
+_INTOSC_OSC_CLKOUT                00003FFD
+_INTOSC_OSC_NOCLKOUT              00003FFC
+_INTRC_OSC_CLKOUT                 00003FFD
+_INTRC_OSC_NOCLKOUT               00003FFC
+_LP_OSC                           00003FEC
+_LVP_OFF                          00003F7F
+_LVP_ON                           00003FFF
+_MCLRE_OFF                        00003FDF
+_MCLRE_ON                         00003FFF
+_PWRTE_OFF                        00003FFF
+_PWRTE_ON                         00003FF7
+_RC_OSC_CLKOUT                    00003FFF
+_RC_OSC_NOCLKOUT                  00003FFE
+_WDT_OFF                          00003FFB
+_WDT_ON                           00003FFF
+_XT_OSC                           00003FED
+__16F628A                         00000001
+
+
+MEMORY USAGE MAP ('X' = Used,  '-' = Unused)
+
+0000 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0040 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0080 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+00C0 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0100 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0140 : XXXXXXXXXXXXXXXX XXXXXXXX-------- ---------------- ----------------
+
+All other memory blocks unused.
+
+Program Memory Words Used:   344
+Program Memory Words Free:  1704
+
+MPASM  5.06                           TSC.ASM   1-24-2008  3:51:22         PAGE 16
+
+
+
+
+
+
+Errors   :     0
+Warnings :     0 reported,     0 suppressed
+Messages :     0 reported,     3 suppressed
+
+

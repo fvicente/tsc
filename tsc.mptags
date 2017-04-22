@@ -1,0 +1,65 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.5.4	//
+!_TAG_REVISION_NAME	MCHPTags	//
+!_TAG_REVISION_VERSION	6.0.1	//
+AFTER_GEAR	C:\tsc\tsc.asm	124;"	l	line:124
+BOUNCE	C:\tsc\tsc.asm	135;"	l	line:135
+CLICKED	C:\tsc\tsc.asm	115;"	l	line:115
+CONTINUER	C:\tsc\tsc.asm	457;"	l	line:457
+CONTINUEW	C:\tsc\tsc.asm	427;"	l	line:427
+CONTOFFR	C:\tsc\tsc.asm	456;"	l	line:456
+CONTOFFW	C:\tsc\tsc.asm	426;"	l	line:426
+CONTONR	C:\tsc\tsc.asm	454;"	l	line:454
+CONTONW	C:\tsc\tsc.asm	424;"	l	line:424
+CONT_2_TO_3	C:\tsc\tsc.asm	286;"	l	line:286
+CONT_3_TO_2	C:\tsc\tsc.asm	370;"	l	line:370
+DLY20	C:\tsc\tsc.asm	470;"	l	line:470
+DO_GEAR_DN	C:\tsc\tsc.asm	191;"	l	line:191
+DO_GEAR_UP	C:\tsc\tsc.asm	182;"	l	line:182
+DRAW_LEDS	C:\tsc\tsc.asm	413;"	l	line:413
+FROM_1_TO_2	C:\tsc\tsc.asm	253;"	l	line:253
+FROM_1_TO_N	C:\tsc\tsc.asm	320;"	l	line:320
+FROM_2_TO_1	C:\tsc\tsc.asm	337;"	l	line:337
+FROM_2_TO_3	C:\tsc\tsc.asm	270;"	l	line:270
+FROM_3_TO_2	C:\tsc\tsc.asm	354;"	l	line:354
+FROM_3_TO_4	C:\tsc\tsc.asm	303;"	l	line:303
+FROM_4_TO_3	C:\tsc\tsc.asm	387;"	l	line:387
+FROM_N_TO_1	C:\tsc\tsc.asm	236;"	l	line:236
+GET_STATE	C:\tsc\tsc.asm	158;"	l	line:158
+INIT	C:\tsc\tsc.asm	88;"	l	line:88
+LOO2_2_TO_3	C:\tsc\tsc.asm	289;"	l	line:289
+LOO2_3_TO_2	C:\tsc\tsc.asm	373;"	l	line:373
+LOOPBITR	C:\tsc\tsc.asm	451;"	l	line:451
+LOOPBITW	C:\tsc\tsc.asm	420;"	l	line:420
+LOOP_1_TO_2	C:\tsc\tsc.asm	256;"	l	line:256
+LOOP_1_TO_N	C:\tsc\tsc.asm	323;"	l	line:323
+LOOP_2_TO_1	C:\tsc\tsc.asm	340;"	l	line:340
+LOOP_2_TO_3	C:\tsc\tsc.asm	273;"	l	line:273
+LOOP_3_TO_2	C:\tsc\tsc.asm	357;"	l	line:357
+LOOP_3_TO_4	C:\tsc\tsc.asm	306;"	l	line:306
+LOOP_4_TO_3	C:\tsc\tsc.asm	390;"	l	line:390
+LOOP_N_TO_1	C:\tsc\tsc.asm	239;"	l	line:239
+MAIN	C:\tsc\tsc.asm	107;"	l	line:107
+MAIN_LOOP	C:\tsc\tsc.asm	108;"	l	line:108
+MICRO4	C:\tsc\tsc.asm	482;"	l	line:482
+MSECLOOP	C:\tsc\tsc.asm	472;"	l	line:472
+MT1_TIMEOUT	C:\tsc\tsc.asm	404;"	l	line:404
+MT2_TIMEOUT	C:\tsc\tsc.asm	407;"	l	line:407
+MT_1_LEFT	C:\tsc\tsc.asm	213;"	l	line:213
+MT_1_RIGHT	C:\tsc\tsc.asm	208;"	l	line:208
+MT_2_LEFT	C:\tsc\tsc.asm	231;"	l	line:231
+MT_2_RIGHT	C:\tsc\tsc.asm	226;"	l	line:226
+NMSEC	C:\tsc\tsc.asm	471;"	l	line:471
+ONEMSEC	C:\tsc\tsc.asm	480;"	l	line:480
+READ_INPUT	C:\tsc\tsc.asm	444;"	l	line:444
+STOP_MT_1	C:\tsc\tsc.asm	200;"	l	line:200
+STOP_MT_1_D	C:\tsc\tsc.asm	205;"	l	line:205
+STOP_MT_2	C:\tsc\tsc.asm	218;"	l	line:218
+STOP_MT_2_D	C:\tsc\tsc.asm	223;"	l	line:223
+UNK_STATE	C:\tsc\tsc.asm	410;"	l	line:410
+WAIT_BUTUP	C:\tsc\tsc.asm	130;"	l	line:130
+WAIT_REL	C:\tsc\tsc.asm	137;"	l	line:137
