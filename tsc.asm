@@ -11,8 +11,10 @@
 
     ERRORLEVEL -302 ; remove message about using proper bank
 
-    #INCLUDE "p16f628a.inc"
     LIST p=16F628A
+    #INCLUDE "p16f628a.inc"
+
+    __CONFIG _INTOSC_OSC_NOCLKOUT & _BOREN_ON & _CP_ON & _DATA_CP_OFF & _PWRTE_ON & _WDT_ON & _LVP_OFF & _MCLRE_ON
 
 ;-------------------------------------------------------------------------;
 ;    Here we define our own personal registers and give them names        ;
@@ -63,86 +65,21 @@
 #DEFINE   GEAR_DOWN     D'6'           ; gear down
 
 #DEFINE   STATE_ALL     B'00111111'    ; possible states
-#DEFINE   STATE_N       B'00010010'    ; state N
-#DEFINE   STATE_1       B'00100010'    ; state 1
-#DEFINE   STATE_2       B'00001010'    ; state 2
-#DEFINE   STATE_3       B'00010100'    ; state 3
-#DEFINE   STATE_4       B'00010001'    ; state 4
+#DEFINE   STATE_N       B'00101101'    ; state N
+#DEFINE   STATE_1       B'00011101'    ; state 1
+#DEFINE   STATE_2       B'00110101'    ; state 2
+#DEFINE   STATE_3       B'00101011'    ; state 3
+#DEFINE   STATE_4       B'00101110'    ; state 4
 
 ;-------------------------------------------------------------------------;
 ;         We set the start of code to orginate a location zero            ;
 ;-------------------------------------------------------------------------;
 
-      ORG 0
-
-            GOTO MAIN                  ; jump to the main routine
-            NOP                        
-            NOP                        
-            NOP                        
-            NOP                        ; no interrupt routine
-
-;-------------------------------------------------------------------------;
-;          Initialization routine sets up ports and timer                 ;
-;-------------------------------------------------------------------------;
-
-INIT        BCF STATUS,RP1
-			BSF STATUS,RP0				; set bank 1
-			MOVLW B'00000001'			; RA0 input, the rest outputs
-			MOVWF TRISA
-			MOVLW B'00000000'			; all bits of PORTB as outputs
-			MOVWF TRISB
-			MOVLW B'10000000'			; disable pull-up resistors <7>
-			MOVWF OPTION_REG
-			BCF STATUS,RP1
-			BCF STATUS,RP0				; set bank 0
-			MOVLW B'00000111'			; set bits RA3:RA0 as I/O <2:0>
-			MOVWF CMCON
-			CLRF ERRFLG
-            RETURN                     
-
-;-------------------------------------------------------------------------;
-;            This is the main routine, the program starts here            ;
-;-------------------------------------------------------------------------;
-
-MAIN        CALL INIT                  ; set up ports etc.
-MAIN_LOOP   CALL READ_INPUT            ; read serial input
-            CLRF PRESSED               ; clear pressed flag
-			BTFSC INPUT,GEAR_UP        ; skip if gear up is pressed
-			GOTO WAIT_BUTUP
-            BTFSC INPUT,GEAR_DOWN      ; skip if gear up is pressed
-			GOTO WAIT_BUTUP
-			GOTO MAIN_LOOP
-CLICKED     MOVF PRESSED,W             ; copy input to W
-            ANDLW B'11000000'          ; leave only gear button bits
-            XORLW B'11000000'          ; xor result
-			BTFSC STATUS,Z             ; skip result is different to 0
-            GOTO MAIN_LOOP             ; two bits are on, command cancelled
-            BTFSC PRESSED,GEAR_UP      ; skip if gear up is not pressed
-            GOTO DO_GEAR_UP
-            BTFSC PRESSED,GEAR_DOWN    ; skip if gear down is not pressed
-            GOTO DO_GEAR_DN
-AFTER_GEAR  GOTO MAIN_LOOP             ; continue waiting for an event
-
-;-------------------------------------------------------------------------;
-;      Wait for gear up/down buttons to be released handling bounce       ;
-;-------------------------------------------------------------------------;
-
-WAIT_BUTUP  MOVF INPUT,W               ; copy input to W
-			ANDLW B'11000000'          ; leave only gear button bits
-			IORWF PRESSED,1            ; or W with pressed register and store result on it
-            MOVLW 0FFH                 ; set accumulator to 0FFh
-            MOVWF BOUNCECNT            ; move accumulator content to bounce counter
-BOUNCE      DECFSZ BOUNCECNT,f
-            GOTO BOUNCE                ; loop until counter is 0
-WAIT_REL    CALL READ_INPUT            ; read serial input
-            MOVF INPUT,W               ; copy input to W
-			ANDLW B'11000000'          ; leave only gear button bits
-			IORWF PRESSED,1            ; or W with pressed register and store result on it
-			BTFSC INPUT,GEAR_UP        ; skip if gear up is not pressed
-            GOTO WAIT_REL              ; wait for button release
-			BTFSC INPUT,GEAR_DOWN      ; skip if gear down is not pressed
-			GOTO WAIT_REL              ; wait for button release
-            GOTO CLICKED               ; continue execution of main loop
+      ORG 0x00
+      GOTO MAIN                        ; jump to the main routine
+                     
+      ORG 0x04
+      RETFIE                           ; no interrupt routine
 
 ;-------------------------------------------------------------------------;
 ;                             Gear up and down                            ;
@@ -203,7 +140,8 @@ STOP_MT_1   BCF L293_12EN
 			RETURN
 
 STOP_MT_1_D CALL STOP_MT_1
-			GOTO DRAW_LEDS
+            CALL DRAW_LEDS
+			GOTO AFTER_GEAR
 
 MT_1_RIGHT  BSF L293_2A
             BCF L293_1A
@@ -221,7 +159,8 @@ STOP_MT_2   BCF L293_34EN
 			RETURN
 
 STOP_MT_2_D CALL STOP_MT_2
-			GOTO DRAW_LEDS
+            CALL DRAW_LEDS
+			GOTO AFTER_GEAR
 
 MT_2_RIGHT  BSF L293_4A
             BCF L293_3A
@@ -236,9 +175,10 @@ MT_2_LEFT   BCF L293_4A
 FROM_N_TO_1 CALL MT_1_LEFT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_N_TO_1 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_N_TO_1 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT1_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -253,9 +193,10 @@ LOOP_N_TO_1 CALL DLY20
 FROM_1_TO_2 CALL MT_1_RIGHT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_1_TO_2 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_1_TO_2 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT1_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -270,9 +211,10 @@ LOOP_1_TO_2 CALL DLY20
 FROM_2_TO_3 CALL MT_1_LEFT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_2_TO_3 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_2_TO_3 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT1_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -283,12 +225,14 @@ LOOP_2_TO_3 CALL DLY20
 			GOTO LOOP_2_TO_3
 			GOTO LOOP_2_TO_3
 			GOTO LOOP_2_TO_3           ; unknown state may be correct during gear transition
-CONT_2_TO_3 CALL MT_2_RIGHT
+CONT_2_TO_3 CALL STOP_MT_1
+            CALL MT_2_LEFT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOO2_2_TO_3 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOO2_2_TO_3 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT2_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -303,9 +247,10 @@ LOO2_2_TO_3 CALL DLY20
 FROM_3_TO_4 CALL MT_2_RIGHT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_3_TO_4 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_3_TO_4 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT2_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -320,9 +265,10 @@ LOOP_3_TO_4 CALL DLY20
 FROM_1_TO_N CALL MT_1_RIGHT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_1_TO_N CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_1_TO_N CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT1_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -334,12 +280,13 @@ LOOP_1_TO_N CALL DLY20
 			GOTO LOOP_1_TO_N
 			GOTO LOOP_1_TO_N           ; unknown state may be correct during gear transition
 
-FROM_2_TO_1 CALL MT_1_RIGHT
+FROM_2_TO_1 CALL MT_1_LEFT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_2_TO_1 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_2_TO_1 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT1_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -354,9 +301,10 @@ LOOP_2_TO_1 CALL DLY20
 FROM_3_TO_2 CALL MT_2_RIGHT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_3_TO_2 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_3_TO_2 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT2_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -367,12 +315,14 @@ LOOP_3_TO_2 CALL DLY20
 			GOTO LOOP_3_TO_2
 			GOTO LOOP_3_TO_2
 			GOTO LOOP_3_TO_2           ; unknown state may be correct during gear transition
-CONT_3_TO_2 CALL MT_1_RIGHT
+CONT_3_TO_2 CALL STOP_MT_2
+            CALL MT_1_RIGHT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOO2_3_TO_2 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOO2_3_TO_2 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT1_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -387,9 +337,10 @@ LOO2_3_TO_2 CALL DLY20
 FROM_4_TO_3 CALL MT_2_LEFT
             MOVLW D'100'               ; timeout to 2 seconds (100 delays of 20ms)
 			MOVWF TOCNT
-LOOP_4_TO_3 CALL DLY20
-            DECF TOCNT,1               ; decrement timeout counter
-			BTFSS STATUS,Z             ; skip when timeout different from zero
+            GOTO $+2                   ; skip first delay
+LOOP_4_TO_3 CALL ONEMSEC
+            DECFSZ TOCNT,f             ; finished count down
+            GOTO $+2
             GOTO MT2_TIMEOUT           ; timeout reached
             CALL READ_INPUT            ; read serial input
 			CALL GET_STATE             ; state offset is stored in W
@@ -408,15 +359,22 @@ MT2_TIMEOUT CALL STOP_MT_2
             GOTO UNK_STATE
 
 UNK_STATE   BSF ERRFLG,0
-            GOTO DRAW_LEDS
+            CALL DRAW_LEDS
+			GOTO AFTER_GEAR
 
 DRAW_LEDS	CLRF TMPVAR                ; into temporary variable
             CALL GET_STATE             ; state offset is stored in W
-            BSF TMPVAR,W
+            MOVWF TMPCNT               ; into counting register
+            INCF TMPCNT,1
+            BSF STATUS,C
+ROTATE      RLF TMPVAR,1
+            DECFSZ TMPCNT,f
+            GOTO ROTATE
 			BTFSC ERRFLG,0
 			BSF TMPVAR,5
 			MOVLW D'8'                 ; 8
 			MOVWF TMPCNT               ; into counting register
+            BCF STATUS,C
 LOOPBITW	RRF TMPVAR,W
             BTFSS STATUS,C
 			GOTO CONTOFFW
@@ -426,64 +384,124 @@ CONTONW     BSF CD4094_DATA            ; set data
 CONTOFFW    BCF CD4094_DATA            ; clear data
 CONTINUEW   MOVWF TMPVAR               ; into temporary variable
 			BSF CD4094_CLK             ; set clock
-			NOP
+            CALL ONEMSEC
 			BCF CD4094_CLK             ; clear clock
-			NOP
+            CALL ONEMSEC
             DECFSZ TMPCNT,f            ; finished count down
             GOTO LOOPBITW              ; continue write loop
 			BSF CD4094_STR             ; set strobe
-			NOP
+            CALL ONEMSEC
 			BCF CD4094_STR             ; clear strobe
 			NOP
-            GOTO AFTER_GEAR
+            RETURN
 
 ;-------------------------------------------------------------------------;
 ;                               Read inputs                               ;
 ;-------------------------------------------------------------------------;
 
 READ_INPUT  CLRF INPUT
+            BSF CD4021_LATCH           ; latch high
+            CALL ONEMSEC
+			BCF CD4021_LATCH           ; latch low
+            NOP
+			NOP
 			MOVLW D'8'                 ; 8
 			MOVWF TMPCNT               ; into counting register
-            BSF CD4021_LATCH
-            CALL DLY20
-			BCF CD4021_LATCH
-			CALL DLY20
-LOOPBITR    BTFSS CD4021_Q8
-			GOTO CONTOFFR
-			GOTO CONTONR
-CONTONR     BSF STATUS,C
-			GOTO CONTINUER
-CONTOFFR    BCF STATUS,C               ; clear data
-CONTINUER   BSF CD4021_CLK             ; set clock
-			NOP
-			BCF CD4021_CLK             ; clear clock
-			NOP
-			RLF INPUT,1
-            DECFSZ TMPCNT,f            ; finished count down
-            GOTO LOOPBITR              ; continue read loop
-			RETURN
-
-;-------------------------------------------------------------------------;
-;  About 20 millisecond delay routine                                     ;  
-;-------------------------------------------------------------------------;
-
-DLY20       MOVLW D'20'                ; delay for about 20 milliseconds
-NMSEC       MOVWF CNTMSEC
-MSECLOOP    CALL ONEMSEC               ; one ms
-            DECFSZ CNTMSEC,f           ; decrement counter
-            GOTO MSECLOOP
+            BCF CD4021_CLK             ; clear clock
+LOOPBITR    BCF STATUS,C               ; clear C bit
+            BTFSC CD4021_Q8            ; skip bit is not set
+            BSF STATUS,C               ; if it is set bit 7 of temp
+            RLF INPUT,F                ; shift right
+            BSF CD4021_CLK             ; set clock
+            CALL ONEMSEC
+            BCF CD4021_CLK             ; clear clock
+            CALL ONEMSEC
+            DECFSZ TMPCNT,1            ; see if 8 bits have been read
+            GOTO LOOPBITR
             RETURN
 
 ;-------------------------------------------------------------------------;
 ;  1 millisecond delay routine                                            ;  
 ;-------------------------------------------------------------------------;
-ONEMSEC     MOVLW D'249'               ; 1 microsec for load W
+
+ONEMSEC     MOVLW .249                 ; 1 microsec for load W
                                        ; loops below take 248 X 4 + 3 = 995
 MICRO4      ADDLW H'FF'                ; subtract 1 from 'W'
+            CLRWDT                     ; clear watch dog timer
             BTFSS STATUS,Z             ; skip when you reach zero
             GOTO MICRO4                ; loops takes 4 microsec, 3 for last
             RETURN                     ; takes 2 microsec
                                        ; call + load  W + loops + return =
                                        ; 2 + 1 + 995 + 2 = 1000 microsec
+
+;-------------------------------------------------------------------------;
+;          Initialization routine sets up ports and timer                 ;
+;-------------------------------------------------------------------------;
+
+INIT        BCF STATUS,RP1
+			BSF STATUS,RP0				; set bank 1
+			MOVLW B'00000001'			; RA0 input, the rest outputs
+			MOVWF TRISA
+			MOVLW B'00000000'			; all bits of PORTB as outputs
+			MOVWF TRISB
+			MOVLW B'10000000'			; disable pull-up resistors <7>
+			MOVWF OPTION_REG
+            MOVLW B'00000000'
+            MOVWF INTCON                ; disable device interruption
+			BCF STATUS,RP1
+			BCF STATUS,RP0				; set bank 0
+			MOVLW B'00000111'			; set bits RA3:RA0 as I/O <2:0>
+			MOVWF CMCON
+            ; init variables
+			CLRF ERRFLG
+            RETURN                     
+
+;-------------------------------------------------------------------------;
+;            This is the main routine, the program starts here            ;
+;-------------------------------------------------------------------------;
+
+MAIN        CALL INIT                  ; set up ports etc.
+MAIN_LOOP   CALL ONEMSEC
+            CALL READ_INPUT            ; read serial input
+            CALL DRAW_LEDS
+            CLRF PRESSED               ; clear pressed flag
+			BTFSS INPUT,GEAR_UP        ; skip if gear up bit is high (not pressed)
+			GOTO WAIT_BUTUP
+            BTFSS INPUT,GEAR_DOWN      ; skip if gear down bit is high (not pressed)
+			GOTO WAIT_BUTUP
+			GOTO MAIN_LOOP
+CLICKED     MOVF PRESSED,W             ; copy input to W
+            ANDLW B'11000000'          ; leave only gear button bits
+            XORLW B'11000000'          ; xor result
+			BTFSC STATUS,Z             ; skip result is different to 0
+            GOTO MAIN_LOOP             ; two bits are on, command cancelled
+            BTFSC PRESSED,GEAR_UP      ; skip if gear up is not pressed
+            GOTO DO_GEAR_UP
+            BTFSC PRESSED,GEAR_DOWN    ; skip if gear down is not pressed
+            GOTO DO_GEAR_DN
+AFTER_GEAR  GOTO MAIN_LOOP             ; continue waiting for an event
+
+;-------------------------------------------------------------------------;
+;      Wait for gear up/down buttons to be released handling bounce       ;
+;-------------------------------------------------------------------------;
+
+WAIT_BUTUP  MOVF INPUT,W               ; copy input to W
+            XORLW 0xFF                 ; invert bits on W
+			ANDLW B'11000000'          ; leave only gear button bits
+			IORWF PRESSED,1            ; or W with pressed register and store result on it
+            MOVLW 0FFH                 ; set accumulator to 0FFh
+            MOVWF BOUNCECNT            ; move accumulator content to bounce counter
+BOUNCE      DECFSZ BOUNCECNT,f
+            GOTO BOUNCE                ; loop until counter is 0
+WAIT_REL    CALL READ_INPUT            ; read serial input
+            MOVF INPUT,W               ; copy input to W
+            XORLW 0xFF                 ; invert bits on W
+			ANDLW B'11000000'          ; leave only gear button bits
+			IORWF PRESSED,1            ; or W with pressed register and store result on it
+			BTFSS INPUT,GEAR_UP        ; skip if gear up is not pressed
+            GOTO WAIT_REL              ; wait for button release
+			BTFSS INPUT,GEAR_DOWN      ; skip if gear down is not pressed
+			GOTO WAIT_REL              ; wait for button release
+            GOTO CLICKED               ; continue execution of main loop
 
     END
